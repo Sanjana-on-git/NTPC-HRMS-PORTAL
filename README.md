@@ -23,5 +23,5 @@ MSSQL
 
 The portal aims to digitize attendance and shift management processes, improve operational efficiency, reduce manual effort, and provide accurate workforce insights for NTPC employees and administrators.
 
-Developed for NTPC Simhadri
+Developed for NTPC Simhadri - 
 Powering Progress. Empowering People.

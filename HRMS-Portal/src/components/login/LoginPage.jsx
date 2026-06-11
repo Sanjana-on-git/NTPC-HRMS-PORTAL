@@ -1,70 +1,45 @@
 import ntpcLogo from "../../assets/ntpc-logo.png";
 import plantImage from "../../assets/ntpc-simhadri.png";
 import { useState } from "react";
+import api from "../../utils/api";
 
 import {
     User,
-    UserLock,
-    CalendarDays,
-    Clock3,
+    Lock,
     Eye,
     EyeOff,
     AlertCircle,
+    Clock3,
+    CalendarDays,
 } from "lucide-react";
 
 export default function LoginPage() {
     const [showPassword, setShowPassword] = useState(false);
-    const [dob, setDob] = useState("");
     const [employeeId, setEmployeeId] = useState("");
     const [password, setPassword] = useState("");
     const [error, setError] = useState("");
+    const [loading, setLoading] = useState(false);
 
-    const handleLogin = () => {
+    const handleLogin = async () => {
         setError("");
-
-        if (!employeeId || !password || !dob) {
+        if (!employeeId || !password) {
             setError("Please fill in all required fields.");
             return;
         }
-
-        const birthDate = new Date(dob);
-        const today = new Date();
-
-        let age =
-            today.getFullYear() -
-            birthDate.getFullYear();
-
-        const monthDiff =
-            today.getMonth() -
-            birthDate.getMonth();
-
-        if (
-            monthDiff < 0 ||
-            (monthDiff === 0 &&
-                today.getDate() < birthDate.getDate())
-        ) {
-            age--;
+        setLoading(true);
+        try {
+            const { data } = await api.post('/auth/login', {
+                email: employeeId,
+                password,
+            });
+            localStorage.setItem('token', data.token);
+            localStorage.setItem('user', JSON.stringify(data.user));
+            alert(`Welcome ${data.user.FullName}!`);
+        } catch (err) {
+            setError(err.response?.data?.message || 'Login failed');
+        } finally {
+            setLoading(false);
         }
-
-        if (age < 18) {
-            setError(
-                "You must be at least 18 years old to access the portal."
-            );
-            return;
-        }
-
-        if (
-            employeeId !== "NTPC001" ||
-            password !== "password123"
-        ) {
-            setError(
-                "Invalid Employee ID or Password."
-            );
-            return;
-        }
-
-        alert("Login Successful");
-
     };
 
     return (
@@ -119,19 +94,19 @@ export default function LoginPage() {
 
                     <div className="flex justify-between items-center text-xs text-gray-500 mb-6">
                         <div className="flex items-center gap-1 border rounded-full px-3 py-1">
-                            <UserLock size={12} className="text-[#1476B8]" />
+                            <Lock size={12} className="text-[#1476B8]" />
                             Secure attendance portal
                         </div>
 
                         <div className="flex items-center gap-4">
                             <div className="flex items-center gap-1">
                                 <CalendarDays size={12} className="text-[#1476B8]" />
-                                04 April 2026
+                                {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}
                             </div>
 
                             <div className="flex items-center gap-1">
                                 <Clock3 size={12} className="text-[#1476B8]" />
-                                10:00 AM
+                                {new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                             </div>
                         </div>
                     </div>
@@ -150,10 +125,8 @@ export default function LoginPage() {
                         <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 shadow-sm">
                             <div className="flex items-start gap-3">
                                 <AlertCircle size={20} className="text-red-600 flex-shrink-0 mt-0.5" />
-
                                 <div>
                                     <h4 className="text-sm font-semibold text-red-700">Authentication Failed</h4>
-
                                     <p className="text-sm text-red-600 mt-1">{error}</p>
                                 </div>
                             </div>
@@ -162,30 +135,17 @@ export default function LoginPage() {
 
                     <div className="relative mb-4">
                         <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1476B8]" />
-
                         <input
-                            type="text"
+                            type="number"
                             placeholder="Employee ID"
                             value={employeeId}
                             onChange={(e) => setEmployeeId(e.target.value)}
-                            className="w-full pl-12 pr-4 py-3 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                    </div>
-
-                    <div className="relative mb-4">
-                        <CalendarDays size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1476B8] pointer-events-none" />
-
-                        <input
-                            type="date"
-                            value={dob}
-                            onChange={(e) => setDob(e.target.value)}
-                            className="w-full pl-12 pr-4 py-3 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-gray-700"
+                            className="w-full pl-12 pr-4 py-3 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                     </div>
 
                     <div className="relative mb-5">
-                        <UserLock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1476B8]" />
-
+                        <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1476B8]" />
                         <input
                             type={showPassword ? "text" : "password"}
                             placeholder="Password"
@@ -193,7 +153,6 @@ export default function LoginPage() {
                             onChange={(e) => setPassword(e.target.value)}
                             className="w-full pl-12 pr-12 py-3 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
                         />
-
                         <button
                             type="button"
                             onClick={() => setShowPassword(!showPassword)}
@@ -202,19 +161,20 @@ export default function LoginPage() {
                             {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                         </button>
                     </div>
+
                     <div className="flex justify-between items-center text-sm mb-6">
                         <label className="flex items-center gap-2 text-gray-500">
                             <input type="checkbox" /> Remember Me
                         </label>
-
                         <button className="text-[#1476B8] hover:underline">Forgot Password</button>
                     </div>
 
                     <button
                         onClick={handleLogin}
-                        className="w-full py-3 rounded-lg bg-[#5A8DEE] text-white font-medium hover:bg-[#1F52A3] transition"
+                        disabled={loading}
+                        className="w-full py-3 rounded-lg bg-[#5A8DEE] text-white font-medium hover:bg-[#1F52A3] transition disabled:opacity-50"
                     >
-                        Login →
+                        {loading ? 'Signing in...' : 'Login →'}
                     </button>
                 </div>
             </div>

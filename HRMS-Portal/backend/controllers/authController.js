@@ -10,12 +10,12 @@ const login = async (req, res) => {
 
     const pool = getPool();
     const result = await pool.request()
-      .input('Email', sql.NVarChar, email.trim().toLowerCase())
+  .input('EmployeeCode', sql.NVarChar, email.trim())
       .query(`SELECT u.UserID, u.EmployeeCode, u.FullName, u.Email, u.Password,
-                     u.Role, u.DeptID, u.IsActive, d.DeptName
-              FROM Users u
-              LEFT JOIN Departments d ON u.DeptID = d.DeptID
-              WHERE u.Email = @Email`);
+                   u.Role, u.DeptID, u.IsActive, d.DeptName
+            FROM Users u
+            LEFT JOIN Departments d ON u.DeptID = d.DeptID
+            WHERE u.EmployeeCode = @EmployeeCode`);
 
     const user = result.recordset[0];
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });

@@ -1,173 +1,110 @@
-const xlsx = require('xlsx');
+cat > ~/attendance-system/backend / controllers / hrController.js << 'EOF'
 const { getPool, sql } = require('../config/db');
+const bcrypt = require('bcryptjs');
 
-const getApprovedFiles = async (req, res) => {
+const getAllApprovedFiles = async (req, res) => {
   try {
-    const { month, deptId } = req.query;
     const pool = getPool();
-    let query = `SELECT s.SheetID, s.AttendanceMonth, s.FileName, s.TotalRows,
-                        s.Status, s.UploadedAt, s.ReviewedAt,
-                        d.DeptName, d.DeptID,
-                        uploader.FullName AS UploadedByName,
-                        reviewer.FullName AS ReviewedByName
-                 FROM AttendanceSheets s
-                 JOIN Departments d ON s.DeptID = d.DeptID
-                 JOIN Users uploader ON s.UploadedBy = uploader.UserID
-                 LEFT JOIN Users reviewer ON s.ReviewedBy = reviewer.UserID
-                 WHERE s.Status = 'Approved'`;
-    const request = pool.request();
-    if (month) { query += ' AND s.AttendanceMonth = @Month'; request.input('Month', sql.NVarChar, month); }
-    if (deptId) { query += ' AND s.DeptID = @DeptID'; request.input('DeptID', sql.Int, deptId); }
-    query += ' ORDER BY s.ReviewedAt DESC';
-    const result = await request.query(query);
+    const result = await pool.request()
+      .query(`SELECT Id, Empno, Dept, FileName, Status, Remarks,
+                     Upload_dt, Approved_by, Approved_dt, sap_update, sap_update_dt
+              FROM FilesTable WHERE Status = 'Approved' ORDER BY Approved_dt DESC`);
     res.json({ files: result.recordset });
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch approved files' });
   }
 };
 
-const getAttendanceRecords = async (req, res) => {
+const getAllFiles = async (req, res) => {
   try {
-    const { month, deptId, employeeCode } = req.query;
+    const { dept, status } = req.query;
     const pool = getPool();
-    let query = `SELECT ar.RecordID, ar.EmployeeCode, u.FullName, ar.AttendanceDate,
-                        ar.Status, ar.OTHours, ar.Remarks,
-                        d.DeptName, s.AttendanceMonth
-                 FROM AttendanceRecords ar
-                 JOIN AttendanceSheets s ON ar.SheetID = s.SheetID
-                 JOIN Departments d ON s.DeptID = d.DeptID
-                 LEFT JOIN Users u ON ar.UserID = u.UserID
-                 WHERE s.Status = 'Approved'`;
+    let query = `SELECT Id, Empno, Dept, FileName, Status, Remarks,
+                        Upload_dt, Approved_by, Approved_dt, sap_update, sap_update_dt
+                 FROM FilesTable WHERE 1=1`;
     const request = pool.request();
-    if (month) { query += ' AND s.AttendanceMonth = @Month'; request.input('Month', sql.NVarChar, month); }
-    if (deptId) { query += ' AND s.DeptID = @DeptID'; request.input('DeptID', sql.Int, deptId); }
-    if (employeeCode) { query += ' AND ar.EmployeeCode = @EmpCode'; request.input('EmpCode', sql.NVarChar, employeeCode); }
-    query += ' ORDER BY ar.AttendanceDate, ar.EmployeeCode';
+    if (dept) { query += ' AND Dept = @Dept'; request.input('Dept', sql.NVarChar, dept); }
+    if (status) { query += ' AND Status = @Status'; request.input('Status', sql.NVarChar, status); }
+    query += ' ORDER BY Upload_dt DESC';
     const result = await request.query(query);
-    res.json({ records: result.recordset });
+    res.json({ files: result.recordset });
   } catch (err) {
-    res.status(500).json({ message: 'Failed to fetch records' });
+    res.status(500).json({ message: 'Failed to fetch files' });
   }
 };
 
-const getSummaryReport = async (req, res) => {
+const markSapUpdate = async (req, res) => {
   try {
-    const { month, deptId } = req.query;
     const pool = getPool();
-    const request = pool.request();
-    let where = "WHERE s.Status = 'Approved'";
-    if (month) { where += ' AND s.AttendanceMonth = @Month'; request.input('Month', sql.NVarChar, month); }
-    if (deptId) { where += ' AND s.DeptID = @DeptID'; request.input('DeptID', sql.Int, deptId); }
-    const result = await request.query(`
-      SELECT ar.EmployeeCode, u.FullName, d.DeptName,
-             COUNT(CASE WHEN ar.Status = 'P'  THEN 1 END) AS PresentDays,
-             COUNT(CASE WHEN ar.Status = 'A'  THEN 1 END) AS AbsentDays,
-             COUNT(CASE WHEN ar.Status = 'HD' THEN 1 END) AS HalfDays,
-             COUNT(CASE WHEN ar.Status = 'L'  THEN 1 END) AS LeaveDays,
-             SUM(ISNULL(ar.OTHours, 0))                   AS TotalOTHours
-      FROM AttendanceRecords ar
-      JOIN AttendanceSheets s ON ar.SheetID = s.SheetID
-      JOIN Departments d ON s.DeptID = d.DeptID
-      LEFT JOIN Users u ON ar.UserID = u.UserID
-      ${where}
-      GROUP BY ar.EmployeeCode, u.FullName, d.DeptName
-      ORDER BY d.DeptName, ar.EmployeeCode
-    `);
-    res.json({ summary: result.recordset });
+    const check = await pool.request()
+      .input('Id', sql.Int, req.params.id)
+      .query(`SELECT Id FROM FilesTable WHERE Id = @Id AND Status = 'Approved'`);
+    if (check.recordset.length === 0)
+      return res.status(404).json({ message: 'File not found or not approved yet' });
+    await pool.request()
+      .input('Id', sql.Int, req.params.id)
+      .query(`UPDATE FilesTable SET sap_update = 1, sap_update_dt = GETDATE() WHERE Id = @Id`);
+    res.json({ message: 'SAP update marked successfully' });
   } catch (err) {
-    res.status(500).json({ message: 'Failed to generate summary' });
+    res.status(500).json({ message: 'Failed to mark SAP update' });
   }
 };
 
-const exportReport = async (req, res) => {
-  try {
-    const { format = 'excel', month, deptId } = req.query;
-    const pool = getPool();
-    const request = pool.request();
-    let where = "WHERE s.Status = 'Approved'";
-    if (month) { where += ' AND s.AttendanceMonth = @Month'; request.input('Month', sql.NVarChar, month); }
-    if (deptId) { where += ' AND s.DeptID = @DeptID'; request.input('DeptID', sql.Int, deptId); }
-    const result = await request.query(`
-      SELECT ar.EmployeeCode, ISNULL(u.FullName,'') AS EmployeeName,
-             d.DeptName AS Department, s.AttendanceMonth AS Month,
-             ar.AttendanceDate, ar.Status, ar.OTHours, ar.Remarks
-      FROM AttendanceRecords ar
-      JOIN AttendanceSheets s ON ar.SheetID = s.SheetID
-      JOIN Departments d ON s.DeptID = d.DeptID
-      LEFT JOIN Users u ON ar.UserID = u.UserID
-      ${where}
-      ORDER BY d.DeptName, ar.EmployeeCode, ar.AttendanceDate
-    `);
-    if (format === 'excel') {
-      const wb = xlsx.utils.book_new();
-      const ws = xlsx.utils.json_to_sheet(result.recordset);
-      xlsx.utils.book_append_sheet(wb, ws, 'Attendance');
-      const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
-      const filename = `attendance_${month || 'all'}_${Date.now()}.xlsx`;
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.send(buffer);
-    } else {
-      res.json({ data: result.recordset });
-    }
-  } catch (err) {
-    res.status(500).json({ message: 'Failed to export' });
-  }
-};
-
-const getUsers = async (req, res) => {
+const getAllEmployees = async (req, res) => {
   try {
     const pool = getPool();
     const result = await pool.request()
-      .query(`SELECT u.UserID, u.EmployeeCode, u.FullName, u.Email,
-                     u.Role, u.IsActive, u.CreatedAt, d.DeptName
-              FROM Users u
-              LEFT JOIN Departments d ON u.DeptID = d.DeptID
+      .query(`SELECT u.UserID, u.EmployeeCode, u.FullName, u.Email, u.Role,
+                     u.IsActive, u.DateOfBirth, u.CreatedAt, d.DeptName
+              FROM Users u LEFT JOIN Departments d ON u.DeptID = d.DeptID
               ORDER BY u.Role, u.FullName`);
-    res.json({ users: result.recordset });
+    res.json({ employees: result.recordset });
   } catch (err) {
-    res.status(500).json({ message: 'Failed to fetch users' });
+    res.status(500).json({ message: 'Failed to fetch employees' });
   }
 };
 
-const createUser = async (req, res) => {
+const createEmployee = async (req, res) => {
   try {
-    const bcrypt = require('bcryptjs');
-    const { employeeCode, fullName, email, role, deptId, password } = req.body;
-    if (!employeeCode || !fullName || !email || !role || !password)
-      return res.status(400).json({ message: 'All fields are required' });
-    const hash = await bcrypt.hash(password, 10);
+    const { employeeCode, fullName, email, role, deptId, dateOfBirth } = req.body;
+    if (!/^\d{6}$/.test(employeeCode))
+      return res.status(400).json({ message: 'Employee code must be exactly 6 digits' });
+    const dob = new Date(dateOfBirth);
+    const dd = String(dob.getDate()).padStart(2, '0');
+    const mm = String(dob.getMonth() + 1).padStart(2, '0');
+    const yyyy = dob.getFullYear();
+    const initialPassword = `${dd}${mm}${yyyy}`;
+    const hashedPassword = await bcrypt.hash(initialPassword, 10);
     const pool = getPool();
     await pool.request()
       .input('EmployeeCode', sql.NVarChar, employeeCode)
       .input('FullName', sql.NVarChar, fullName)
-      .input('Email', sql.NVarChar, email.toLowerCase())
-      .input('Password', sql.NVarChar, hash)
+      .input('Email', sql.NVarChar, email)
+      .input('Password', sql.NVarChar, hashedPassword)
       .input('Role', sql.NVarChar, role)
-      .input('DeptID', sql.Int, deptId || null)
-      .query(`INSERT INTO Users (EmployeeCode, FullName, Email, Password, Role, DeptID)
-              VALUES (@EmployeeCode, @FullName, @Email, @Password, @Role, @DeptID)`);
-    res.status(201).json({ message: 'User created successfully' });
+      .input('DeptID', sql.Int, deptId)
+      .input('DateOfBirth', sql.Date, dateOfBirth)
+      .query(`INSERT INTO Users (EmployeeCode, FullName, Email, Password, Role, DeptID, DateOfBirth, IsActive)
+              VALUES (@EmployeeCode, @FullName, @Email, @Password, @Role, @DeptID, @DateOfBirth, 1)`);
+    res.status(201).json({ message: 'Employee created successfully', initialPassword });
   } catch (err) {
-    if (err.number === 2627)
+    if (err.message.includes('UNIQUE') || err.message.includes('duplicate'))
       return res.status(400).json({ message: 'Employee code or email already exists' });
-    res.status(500).json({ message: 'Failed to create user' });
+    res.status(500).json({ message: 'Failed to create employee', error: err.message });
   }
 };
 
-const toggleUser = async (req, res) => {
+const deactivateEmployee = async (req, res) => {
   try {
     const pool = getPool();
     await pool.request()
       .input('UserID', sql.Int, req.params.id)
-      .query(`UPDATE Users SET IsActive = 1 - IsActive WHERE UserID = @UserID`);
-    res.json({ message: 'User status toggled' });
+      .query(`UPDATE Users SET IsActive = 0 WHERE UserID = @UserID`);
+    res.json({ message: 'Employee deactivated' });
   } catch (err) {
-    res.status(500).json({ message: 'Failed to toggle user' });
+    res.status(500).json({ message: 'Failed to deactivate employee' });
   }
 };
 
-module.exports = {
-  getApprovedFiles, getAttendanceRecords, getSummaryReport,
-  exportReport, getUsers, createUser, toggleUser,
-};
+module.exports = { getAllApprovedFiles, getAllFiles, markSapUpdate, getAllEmployees, createEmployee, deactivateEmployee };
+EOF

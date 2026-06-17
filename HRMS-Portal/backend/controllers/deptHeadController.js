@@ -1,113 +1,78 @@
-const xlsx = require('xlsx');
+cat > ~/attendance-system/backend / controllers / deptHeadController.js << 'EOF'
 const { getPool, sql } = require('../config/db');
 
-const getApprovedFiles = async (req, res) => {
+const getPendingFiles = async (req, res) => {
   try {
-    const { dept } = req.query;
-    const pool = getPool();
-    let query = `SELECT Id, Empno, Dept, FileName, Status, Remarks,
-                        Upload_dt, Approved_by, Approved_dt,
-                        sap_update, sap_update_dt
-                 FROM FilesTable WHERE Status = 'Approved'`;
-    const request = pool.request();
-    if (dept) { query += ' AND Dept = @Dept'; request.input('Dept', sql.NVarChar, dept); }
-    query += ' ORDER BY Approved_dt DESC';
-    const result = await request.query(query);
-    res.json({ files: result.recordset });
-  } catch (err) {
-    res.status(500).json({ message: 'Failed to fetch approved files' });
-  }
-};
-
-const markSapUpdate = async (req, res) => {
-  try {
-    const pool = getPool();
-    await pool.request()
-      .input('Id', sql.Int, req.params.id)
-      .query(`UPDATE FilesTable
-              SET sap_update = 1, sap_update_dt = GETDATE()
-              WHERE Id = @Id AND Status = 'Approved'`);
-    res.json({ message: 'SAP update marked successfully' });
-  } catch (err) {
-    res.status(500).json({ message: 'Failed to mark SAP update' });
-  }
-};
-
-const exportReport = async (req, res) => {
-  try {
-    const { dept } = req.query;
-    const pool = getPool();
-    const request = pool.request();
-    let where = "WHERE Status = 'Approved'";
-    if (dept) { where += ' AND Dept = @Dept'; request.input('Dept', sql.NVarChar, dept); }
-    const result = await request.query(`SELECT * FROM FilesTable ${where} ORDER BY Dept, Upload_dt`);
-
-    const wb = xlsx.utils.book_new();
-    const ws = xlsx.utils.json_to_sheet(result.recordset);
-    xlsx.utils.book_append_sheet(wb, ws, 'Files');
-    const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    const filename = `files_report_${Date.now()}.xlsx`;
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.send(buffer);
-  } catch (err) {
-    res.status(500).json({ message: 'Failed to export' });
-  }
-};
-
-const getUsers = async (req, res) => {
-  try {
+    const dept = req.user.DeptName;
     const pool = getPool();
     const result = await pool.request()
-      .query(`SELECT u.UserID, u.EmployeeCode, u.FullName, u.Email,
-                     u.Role, u.IsActive, u.CreatedAt, d.DeptName
-              FROM Users u
-              LEFT JOIN Departments d ON u.DeptID = d.DeptID
-              ORDER BY u.Role, u.FullName`);
-    res.json({ users: result.recordset });
+      .input('Dept', sql.NVarChar, dept)
+      .query(`SELECT Id, Empno, Dept, FileName, Status, Remarks, Upload_dt
+              FROM FilesTable WHERE Dept = @Dept AND Status = 'Pending'
+              ORDER BY Upload_dt ASC`);
+    res.json({ pending: result.recordset });
   } catch (err) {
-    res.status(500).json({ message: 'Failed to fetch users' });
+    res.status(500).json({ message: 'Failed to fetch pending files' });
   }
 };
 
-const createUser = async (req, res) => {
+const reviewFile = async (req, res) => {
   try {
-    const bcrypt = require('bcryptjs');
-    const { employeeCode, fullName, email, role, deptId, password } = req.body;
-    if (!employeeCode || !fullName || !email || !role || !password)
-      return res.status(400).json({ message: 'All fields are required' });
-    const hash = await bcrypt.hash(password, 10);
+    const { action, remarks } = req.body;
+    if (!['Approved', 'Rejected'].includes(action))
+      return res.status(400).json({ message: 'Action must be Approved or Rejected' });
+    const dept = req.user.DeptName;
     const pool = getPool();
+    const check = await pool.request()
+      .input('Id', sql.Int, req.params.id)
+      .input('Dept', sql.NVarChar, dept)
+      .query(`SELECT Id FROM FilesTable WHERE Id = @Id AND Dept = @Dept AND Status = 'Pending'`);
+    if (check.recordset.length === 0)
+      return res.status(404).json({ message: 'File not found, already reviewed, or not in your department' });
     await pool.request()
-      .input('EmployeeCode', sql.NVarChar, employeeCode)
-      .input('FullName', sql.NVarChar, fullName)
-      .input('Email', sql.NVarChar, email.toLowerCase())
-      .input('Password', sql.NVarChar, hash)
-      .input('Role', sql.NVarChar, role)
-      .input('DeptID', sql.Int, deptId || null)
-      .query(`INSERT INTO Users (EmployeeCode, FullName, Email, Password, Role, DeptID)
-              VALUES (@EmployeeCode, @FullName, @Email, @Password, @Role, @DeptID)`);
-    res.status(201).json({ message: 'User created successfully' });
+      .input('Id', sql.Int, req.params.id)
+      .input('Status', sql.NVarChar, action)
+      .input('Remarks', sql.NVarChar, remarks || null)
+      .input('Approved_by', sql.NVarChar, req.user.FullName)
+      .query(`UPDATE FilesTable SET Status = @Status, Remarks = @Remarks,
+              Approved_by = @Approved_by, Approved_dt = GETDATE() WHERE Id = @Id`);
+    res.json({ message: `File ${action.toLowerCase()} successfully` });
   } catch (err) {
-    if (err.number === 2627)
-      return res.status(400).json({ message: 'Employee code or email already exists' });
-    res.status(500).json({ message: 'Failed to create user' });
+    res.status(500).json({ message: 'Failed to review file' });
   }
 };
 
-const toggleUser = async (req, res) => {
+const getApprovalHistory = async (req, res) => {
   try {
+    const dept = req.user.DeptName;
     const pool = getPool();
-    await pool.request()
-      .input('UserID', sql.Int, req.params.id)
-      .query(`UPDATE Users SET IsActive = 1 - IsActive WHERE UserID = @UserID`);
-    res.json({ message: 'User status toggled' });
+    const result = await pool.request()
+      .input('Dept', sql.NVarChar, dept)
+      .input('Approved_by', sql.NVarChar, req.user.FullName)
+      .query(`SELECT Id, Empno, Dept, FileName, Status, Remarks,
+                     Upload_dt, Approved_by, Approved_dt
+              FROM FilesTable WHERE Dept = @Dept AND Approved_by = @Approved_by
+              ORDER BY Approved_dt DESC`);
+    res.json({ history: result.recordset });
   } catch (err) {
-    res.status(500).json({ message: 'Failed to toggle user' });
+    res.status(500).json({ message: 'Failed to fetch history' });
   }
 };
 
-module.exports = {
-  getApprovedFiles, markSapUpdate, exportReport,
-  getUsers, createUser, toggleUser,
+const getAllDeptFiles = async (req, res) => {
+  try {
+    const dept = req.user.DeptName;
+    const pool = getPool();
+    const result = await pool.request()
+      .input('Dept', sql.NVarChar, dept)
+      .query(`SELECT Id, Empno, Dept, FileName, Status, Remarks,
+                     Upload_dt, Approved_by, Approved_dt
+              FROM FilesTable WHERE Dept = @Dept ORDER BY Upload_dt DESC`);
+    res.json({ files: result.recordset });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to fetch department files' });
+  }
 };
+
+module.exports = { getPendingFiles, reviewFile, getApprovalHistory, getAllDeptFiles };
+EOF

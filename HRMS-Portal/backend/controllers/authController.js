@@ -17,7 +17,6 @@ const login = async (req, res) => {
             LEFT JOIN Departments d ON u.DeptID = d.DeptID
             WHERE u.EmployeeCode = @EmployeeCode`);
 
-
     const user = result.recordset[0];
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
     if (!user.IsActive) return res.status(403).json({ message: 'Account deactivated. Contact HR.' });

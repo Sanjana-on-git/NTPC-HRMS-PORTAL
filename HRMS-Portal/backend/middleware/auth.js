@@ -13,8 +13,20 @@ const authenticate = async (req, res, next) => {
     const pool = getPool();
     const result = await pool.request()
       .input('UserID', sql.Int, decoded.userId)
-      .query(`SELECT UserID, EmployeeCode, FullName, Email, Role, DeptID, IsActive
-              FROM Users WHERE UserID = @UserID AND IsActive = 1`);
+      .query(`
+  SELECT 
+    u.UserID,
+    u.EmployeeCode,
+    u.FullName,
+    u.Email,
+    u.Role,
+    u.DeptID,
+    u.IsActive,
+    d.DeptName
+  FROM Users u
+  LEFT JOIN Departments d ON u.DeptID = d.DeptID
+  WHERE u.UserID = @UserID AND u.IsActive = 1
+`);
 
     if (result.recordset.length === 0)
       return res.status(401).json({ message: 'Account not found or deactivated' });

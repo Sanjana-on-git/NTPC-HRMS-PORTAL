@@ -2,7 +2,7 @@ import ntpcLogo from "../../assets/ntpc-logo.png";
 import plantImage from "../../assets/ntpc-simhadri.png";
 import { useState } from "react";
 import api from "../../utils/api";
-
+import { useNavigate } from "react-router-dom";
 import {
     User,
     Lock,
@@ -19,28 +19,47 @@ export default function LoginPage() {
     const [password, setPassword] = useState("");
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
-
+    const navigate = useNavigate();
     const handleLogin = async () => {
-        setError("");
-        if (!employeeId || !password) {
-            setError("Please fill in all required fields.");
-            return;
+    setError("");
+
+    if (!employeeId || !password) {
+        setError("Please fill in all required fields.");
+        return;
+    }
+
+    setLoading(true);
+
+    try {
+        const { data } = await api.post("/auth/login", {
+            email: employeeId,
+            password,
+        });
+
+        localStorage.setItem("token", data.token);
+        localStorage.setItem("user", JSON.stringify(data.user));
+
+        const role = data.user.Role;
+
+        if (role === "DGM") {
+            navigate("/dgm");
+        } 
+        else if (role === "DeptHead") {
+            navigate("/hod");
+        } 
+        else if (role === "HR") {
+            navigate("/hr");
+        } 
+        else {
+            setError("Unknown user role");
         }
-        setLoading(true);
-        try {
-            const { data } = await api.post('/auth/login', {
-                email: employeeId,
-                password,
-            });
-            localStorage.setItem('token', data.token);
-            localStorage.setItem('user', JSON.stringify(data.user));
-            alert(`Welcome ${data.user.FullName}!`);
-        } catch (err) {
-            setError(err.response?.data?.message || 'Login failed');
-        } finally {
-            setLoading(false);
-        }
-    };
+
+    } catch (err) {
+        setError(err.response?.data?.message || "Login failed");
+    } finally {
+        setLoading(false);
+    }
+};
 
     return (
         <div className="min-h-screen flex">
@@ -136,7 +155,7 @@ export default function LoginPage() {
                     <div className="relative mb-4">
                         <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#1476B8]" />
                         <input
-                            type="number"
+                            type="text"
                             placeholder="Employee ID"
                             value={employeeId}
                             onChange={(e) => setEmployeeId(e.target.value)}

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
+import api from "../utils/api";
+import { useNavigate } from "react-router-dom";
 import ntpcLogo from "../assets/ntpc-logo.png";
 import blobImg from "../assets/blob.png";
-import api from "../utils/api";
 import {
   Home,
   Upload,
@@ -18,43 +19,39 @@ import {
   AlertTriangle,
 } from "lucide-react";
 
-export default function HRDashboard() {
-  const [activeTab, setActiveTab] = useState("home");
-  const [showLogoutModal, setShowLogoutModal] = useState(false);
-  // const [files, setFiles] = useState([]);
-  
-  const navItems = [
-    { id: "home", label: "Home", icon: Home },
-    { id: "approve", label: "Approved Attendance", icon: ClipboardCheck },
-    { id: "password", label: "Change Password", icon: Lock },
-  ];
+export default function DGMDashboard() {
+const [showLogoutModal, setShowLogoutModal] = useState(false);
+const [activeTab, setActiveTab] = useState("home");
+const [files, setFiles] = useState([]);
+const navigate = useNavigate();
+const user = JSON.parse(localStorage.getItem("user"));
+ const navItems = [
+  { id: "home", label: "Home", icon: Home },
+  { id: "upload", label: "Upload Attendance", icon: Upload },
+  { id: "uploaded", label: "Uploaded Attendance", icon: ClipboardCheck },
+  { id: "password", label: "Change Password", icon: Lock },
+];
 useEffect(() => {
-  fetchApproved();
+  fetchHistory();
 }, []);
-const handleDownload = (filePath) => {
-  const fileName = filePath.split("\\").pop();
 
-  const url = `http://localhost:5001/${filePath.replace(/\\/g, "/")}`;
-
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-};
-const fetchApproved = async () => {
+const fetchHistory = async () => {
   try {
-    const { data } = await api.get("/hr/approved-files", {
+    const { data } = await api.get("/dgm/history", {
       headers: {
         Authorization: `Bearer ${localStorage.getItem("token")}`,
       },
     });
 
-    setRows(data.files);
+    setRows(data.history);
   } catch (err) {
     console.log(err);
   }
+};
+const handleLogout = () => {
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+  navigate("/");
 };
   const departments = [
     { name: "O&M - C&I (Boiler)", color: "bg-blue-100 text-blue-700" },
@@ -70,10 +67,65 @@ const fetchApproved = async () => {
     { name: "MM-Boiler-Fans", color: "bg-orange-100 text-orange-700" },
     { name: "MM-Boiler-Pressure Parts", color: "bg-blue-100 text-blue-700" },
   ];
+const handleDownload = (filePath) => {
+  const fileName = filePath.split("\\").pop();
 
-  const [rows, setRows] = useState([]);
+  const url = `http://localhost:5001/${filePath.replace(/\\/g, "/")}`;
 
- 
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+const [rows, setRows] = useState([]);
+
+ const handleApprove = (id) => {
+  setRows(
+    rows.map((r) =>
+      r.id === id
+        ? {
+            ...r,
+            status: "approved",
+            approvedBy: "HOD001",
+            approvedOn: new Date().toLocaleDateString(),
+          }
+        : r
+    )
+  );
+};
+
+  const handleReject = (id) => {
+    setRows(rows.map((r) => (r.id === id ? { ...r, status: "rejected" } : r)));
+  };
+
+  const handleFileUpload = (e) => {
+  const uploaded = Array.from(e.target.files || []);
+  setFiles(uploaded);
+};
+const handleUpload = async () => {
+  if (!files.length) return;
+
+  const user = JSON.parse(localStorage.getItem("user"));
+
+  const formData = new FormData();
+  formData.append("file", files[0]);
+
+  try {
+    await api.post("/dgm/upload", formData, {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("token")}`,
+      },
+    });
+
+    alert("Attendance uploaded successfully");
+    setFiles([]);
+    fetchHistory();
+  } catch (err) {
+    console.log(err);
+  }
+};
 
   return (
     <div className="min-h-screen bg-[#e3ddd4] flex items-center justify-center p-8 font-sans">
@@ -190,7 +242,7 @@ const fetchApproved = async () => {
                 alt="avatar"
                 className="w-7 h-7 rounded-full"
               />
-              HR Admin
+              {user.Role} - {user.DeptName}
               <ChevronDown size={14} />
             </div>
           </div>
@@ -304,10 +356,12 @@ const fetchApproved = async () => {
 
       {/* Buttons */}
       <div className="flex justify-center gap-3 mt-4">
-        <button className="bg-blue-500 text-white px-5 py-2 rounded-lg text-xs font-medium hover:bg-blue-600">
-          Upload Document
-        </button>
-
+        <button
+  onClick={handleUpload}
+  className="bg-blue-500 text-white px-5 py-2 rounded-lg text-xs font-medium hover:bg-blue-600"
+>
+  Upload Document
+</button>
         <button className="border border-gray-300 px-5 py-2 rounded-lg text-xs font-medium text-gray-700 hover:bg-gray-50">
           Save as a draft
         </button>
@@ -321,8 +375,7 @@ const fetchApproved = async () => {
   </>
 )}
 
-          {/* Approve */}
-          {activeTab === "approve" && (
+{activeTab === "uploaded" && (
   <div className="bg-white rounded-2xl p-4 overflow-x-auto">
     <table className="w-full text-xs border border-[#b9c5ff]">
       <thead>
@@ -348,13 +401,14 @@ const fetchApproved = async () => {
           >
             <td className="px-3 py-3">{row.Id}</td>
             <td className="px-3 py-3">{row.Dept}</td>
+
             <td className="px-3 py-3 text-[10px] text-gray-500 break-all">
               {row.FileName}
             </td>
 
             {/* Download */}
             <td className="px-3 py-3">
-             <button
+              <button
   onClick={() => handleDownload(row.FilePath)}
   className="text-red-400 underline text-[11px] hover:text-red-500"
 >
@@ -363,25 +417,30 @@ const fetchApproved = async () => {
             </td>
 
             <td className="px-3 py-3">{row.Upload_dt}</td>
-            <td className="px-3 py-3">{row.Approved_by || "-"}</td>
-            <td className="px-3 py-3">{row.Approved_dt || "-"}</td>
 
-            {/* Status only */}
+            <td className="px-3 py-3">
+              {row.Approved_by || "-"}
+            </td>
+
+            <td className="px-3 py-3">
+              {row.Approved_dt || "-"}
+            </td>
+
             <td className="px-3 py-3">
               <span
                 className={`px-2 py-1 rounded text-[10px] font-medium ${
-  row.Status.includes("Approved") || row.Status.includes("Completed")
+  row.Status.includes("Approved")
     ? "bg-green-100 text-green-600"
     : "bg-yellow-100 text-yellow-700"
 }`}
               >
-                {row.Status}
+                {row.Status || "Pending"}
               </span>
             </td>
           </tr>
         ))}
 
-        {/* Empty rows like screenshot */}
+        {/* Empty rows */}
         {Array.from({ length: 2 }).map((_, i) => (
           <tr key={i} className="h-14 border border-[#b9c5ff]">
             {Array.from({ length: 8 }).map((__, j) => (
@@ -487,12 +546,8 @@ const fetchApproved = async () => {
             <p className="mb-6">Are you sure you want to log out?</p>
 
             <div className="flex gap-3">
-              <button
-  onClick={() => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    window.location.href = "/";
-  }}
+             <button
+  onClick={handleLogout}
   className="flex-1 bg-blue-500 text-white py-2 rounded-lg"
 >
   Log Out

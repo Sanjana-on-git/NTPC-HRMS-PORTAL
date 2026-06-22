@@ -251,7 +251,7 @@ const handleUpload = async () => {
           {activeTab === "home" && (
             <>
               <h2 className="text-2xl font-semibold text-center mb-4">
-                HR Department
+                DGM Dashboard
               </h2>
 
               <div className="w-[380px] h-px bg-gray-200 mx-auto mb-12"></div>

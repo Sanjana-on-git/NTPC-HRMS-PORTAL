@@ -1,6 +1,6 @@
 import { Routes, Route } from "react-router-dom";
 import HRDashboard from "./components/HRDashboard";
-import LoginPage from "./components/Login/LoginPage";
+import LoginPage from "./components/login/LoginPage";
 import HODDashboard from "./components/HODDashboard";
 import DGMDashboard from "./components/DGMDashboard";
 

@@ -5,12 +5,13 @@ This document describes the design of the **HR Shift Attendance Portal** (NTPC L
 ## Table of Contents
 
 1. [Overview](#1-overview)
-2. [Use Case Diagram](#2-use-case-diagram)
-3. [Class Diagram](#3-class-diagram)
-4. [Activity Diagram](#4-activity-diagram)
-5. [Sequence Diagram](#5-sequence-diagram)
-6. [State Diagram](#6-state-diagram)
-7. [Alternate Versions](#7-alternate-versions)
+2. [High Level Design (HLD)](#2-high-level-design-hld)
+3. [Low Level Design (LLD)](#3-low-level-design-lld)
+4. [Use Case Diagram](#4-use-case-diagram)
+5. [Class Diagram](#5-class-diagram)
+6. [Activity Diagram](#6-activity-diagram)
+7. [Sequence Diagram](#7-sequence-diagram)
+8. [State Diagram](#8-state-diagram)
 
 ---
 
@@ -38,7 +39,80 @@ This document describes the design of the **HR Shift Attendance Portal** (NTPC L
 
 ---
 
-## 2. Use Case Diagram
+## 2. High Level Design (HLD)
+
+![High Level Design](images/hld-high-level-design.png)
+
+**Description:** The HLD gives a top-down view of the system as four layers. The three actors use role-specific dashboards, which talk to the application modules, which in turn read and write the database. Every activity in the system is stored in the database.
+
+**Layers**
+
+| Layer | Contents |
+|-------|----------|
+| **Actors** | DGM (Deputy General Manager), HOD (Head of Department), HR Personnel (HR Department) |
+| **User Interface Layer** | **DGM Dashboard:** upload attendance sheet, view upload history, track approval status, view approved/rejected files.<br>**HOD Dashboard:** view received sheets, review sheets, approve/reject sheets, view review history.<br>**HR Dashboard:** view approved sheets, download sheets, process attendance records, view file history. |
+| **Application Layer** | Five modules, described below. |
+| **Database Layer** | Four data stores, described below. |
+
+**Application modules**
+
+| Module | Responsibilities |
+|--------|------------------|
+| Authentication Module | Login, logout, change password, role management |
+| Attendance Management Module | Upload attendance sheet, validate sheet, store file information, manage attendance data |
+| Approval Workflow Module | Forward to HOD, review sheet, approve/reject, forward to HR |
+| Status Tracking Module | Update status (Pending, Approved, Rejected, Processed) and track workflow progress |
+| File Management Module | Store attendance files, download files, maintain file history, manage documents |
+
+**Data stores**
+
+| Database | Contents |
+|----------|----------|
+| User Database | User profiles, roles and permissions, login credentials |
+| Attendance Sheet Records | Sheet metadata, file information, upload details |
+| Approval Records | Review details, approve/reject decision, remarks and comments, review history |
+| Status Tracking Records | Workflow status, status change log, timestamp and user info |
+
+**Workflow summary:** (1) DGM uploads the attendance sheet, (2) the system stores the file information, (3) the system forwards the sheet to the HOD, (4) the HOD approves or rejects it, (5) the system updates the status, (6) approved sheets are forwarded to HR, (7) HR downloads and processes the sheets.
+
+---
+
+## 3. Low Level Design (LLD)
+
+![Low Level Design](images/lld-low-level-design.png)
+
+**Description:** The LLD breaks the HLD down into three layers (presentation, business logic, data) and shows the methods of each module and the database tables with their keys.
+
+**Presentation layer:** the DGM, HOD and HR dashboards, offering the same functions listed in the HLD. All three connect to the business logic layer.
+
+**Business logic layer (application modules)**
+
+| # | Module | Methods |
+|---|--------|---------|
+| 1 | Authentication Module | `login()`, `logout()`, `changePassword()` |
+| 2 | User Management Module | `manageUsers()`, `createUser()`, `updateUser()`, `deleteUser()`, `assignRoles()` |
+| 3 | Attendance Management Module | `uploadAttendanceSheet()`, `viewAttendanceSheet()`, `downloadAttendanceSheet()`, `updateStatus()` |
+| 4 | Approval Management Module | `reviewAttendanceSheet()`, `approveAttendanceSheet()`, `rejectAttendanceSheet()`, `addRemarks()` |
+| 5 | Status Tracking Module | `trackStatus()`, `viewHistory()`, `updateStatus()` |
+| 6 | File Management Module | `storeFile()`, `retrieveFile()`, `maintainRecords()` |
+
+The modules communicate with each other and with the database through the **Module Communication / Service Layer** (internal interactions).
+
+**Data layer (tables)**
+
+| Table | Columns |
+|-------|---------|
+| **Users** | `userID` (PK), `name`, `email`, `password`, `role` |
+| **AttendanceSheets** | `sheetID` (PK), `fileName`, `uploadDate`, `status`, `uploadedBy` (FK to `Users.userID`) |
+| **ApprovalRecords** | `approvalID` (PK), `sheetID` (FK to `AttendanceSheets.sheetID`), `decision` (Approved / Rejected), `remarks`, `reviewDate`, `reviewedBy` (FK to `Users.userID`) |
+
+**Relationships:** a user uploads attendance sheets (`Users` to `AttendanceSheets`), and each attendance sheet is associated with its approval record(s) (`AttendanceSheets` to `ApprovalRecords`).
+
+**Workflow summary:** (1) DGM uploads the attendance sheet, (2) the system stores the file and updates the status to Pending Review, (3) the system forwards the sheet to the HOD, (4) the HOD reviews and approves or rejects it, (5) the system updates the status, (6) approved sheets are forwarded to HR, (7) HR downloads and processes the sheets.
+
+---
+
+## 4. Use Case Diagram
 
 ![Use Case Diagram](images/01-use-case-diagram.png)
 
@@ -68,7 +142,7 @@ This document describes the design of the **HR Shift Attendance Portal** (NTPC L
 
 ---
 
-## 3. Class Diagram
+## 5. Class Diagram
 
 ![Class Diagram](images/02-class-diagram.png)
 
@@ -90,7 +164,7 @@ This document describes the design of the **HR Shift Attendance Portal** (NTPC L
 
 ---
 
-## 4. Activity Diagram
+## 6. Activity Diagram
 
 ![Activity Diagram](images/03-activity-diagram.png)
 
@@ -99,12 +173,12 @@ This document describes the design of the **HR Shift Attendance Portal** (NTPC L
 1. The DGM logs into the portal and uploads the attendance Excel sheet.
 2. The system validates and stores the file, sets the status to **Pending Review**, and forwards the sheet to the respective HOD.
 3. The HOD receives a notification and reviews the sheet, then decides whether to approve it.
-4. **If approved:** the system updates the status to **Approved**. HR views the approved sheet, downloads it, and processes the attendance records. The system then updates the status to **Processed**.
-5. **If rejected:** the HOD enters rejection remarks, the system updates the status to **Rejected**, and the DGM can view the rejection remarks and status.
+4. **If approved:** the system updates the status to **Approved** and forwards the sheet to HR. HR views the approved sheet, downloads it, and processes the attendance records. The system then updates the status to **Processed**.
+5. **If rejected:** the HOD rejects the sheet and enters rejection remarks, and the DGM can view the rejection remarks and status.
 
 ---
 
-## 5. Sequence Diagram
+## 7. Sequence Diagram
 
 ![Sequence Diagram](images/04-sequence-diagram.png)
 
@@ -136,7 +210,7 @@ This document describes the design of the **HR Shift Attendance Portal** (NTPC L
 
 ---
 
-## 6. State Diagram
+## 8. State Diagram
 
 ![State Diagram](images/05-state-diagram.png)
 
@@ -153,14 +227,3 @@ This document describes the design of the **HR Shift Attendance Portal** (NTPC L
 | Forwarded to HR | `processAttendance()` | Processed (end) |
 
 A sheet ends either as **Rejected** (the HOD provides remarks) or as **Processed** (HR has downloaded and processed it).
-
----
-
-## 7. Alternate Versions
-
-These are earlier draw.io versions of two of the diagrams above, kept for reference and for editing.
-
-| Diagram | File |
-|---------|------|
-| Use Case Diagram (draw.io version) | [images/alternate-versions/01-use-case-diagram-drawio.png](images/alternate-versions/01-use-case-diagram-drawio.png) |
-| Activity Diagram (dark theme, draw.io version) | [images/alternate-versions/03-activity-diagram-drawio-dark.png](images/alternate-versions/03-activity-diagram-drawio-dark.png) |
